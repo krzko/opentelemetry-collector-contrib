@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/google/go-github/v61/github"
 	"go.opentelemetry.io/collector/pdata/ptrace"
 	"go.uber.org/zap"
 )
@@ -24,7 +25,7 @@ func (j *jsonTracesUnmarshaler) UnmarshalTraces(blob []byte, config *Config) (pt
 
 	var traces ptrace.Traces
 	if _, ok := event["workflow_job"]; ok {
-		var jobEvent WorkflowJobEvent
+		var jobEvent github.WorkflowJobEvent
 		err := json.Unmarshal(blob, &jobEvent)
 		if err != nil {
 			j.logger.Error("Failed to unmarshal job event", zap.Error(err))
@@ -37,7 +38,7 @@ func (j *jsonTracesUnmarshaler) UnmarshalTraces(blob []byte, config *Config) (pt
 			return ptrace.Traces{}, err
 		}
 	} else if _, ok := event["workflow_run"]; ok {
-		var runEvent WorkflowRunEvent
+		var runEvent github.WorkflowRunEvent
 		err := json.Unmarshal(blob, &runEvent)
 		if err != nil {
 			j.logger.Error("Failed to unmarshal run event", zap.Error(err))

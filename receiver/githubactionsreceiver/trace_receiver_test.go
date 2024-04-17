@@ -5,6 +5,7 @@ package githubactionsreceiver
 
 import (
 	"fmt"
+	"github.com/google/go-github/v61/github"
 	"os"
 	"strconv"
 	"testing"
@@ -116,20 +117,29 @@ func TestUnmarshalTraces(t *testing.T) {
 }
 
 func TestProcessSteps(t *testing.T) {
+	var (
+		checkout  = "checkout"
+		build     = "build"
+		test      = "test"
+		completed = "completed"
+		success   = "success"
+		failure   = "failure"
+	)
+
 	tests := []struct {
 		desc             string
-		givenSteps       []Step
+		givenSteps       []*github.TaskStep
 		expectedSpans    int
 		expectedStatuses []ptrace.StatusCode
 	}{
 		{
 			desc: "Multiple steps with mixed status",
-			givenSteps: []Step{
-				{Name: "Checkout", Status: "completed", Conclusion: "success"},
-				{Name: "Build", Status: "completed", Conclusion: "failure"},
-				{Name: "Test", Status: "completed", Conclusion: "success"},
+			givenSteps: []*github.TaskStep{
+				{Name: &checkout, Status: &completed, Conclusion: &success},
+				{Name: &build, Status: &completed, Conclusion: &failure},
+				{Name: &test, Status: &completed, Conclusion: &success},
 			},
-			expectedSpans: 4, // Includes parent spant
+			expectedSpans: 4, // Includes parent span
 			expectedStatuses: []ptrace.StatusCode{
 				ptrace.StatusCodeOk,
 				ptrace.StatusCodeError,
@@ -138,7 +148,7 @@ func TestProcessSteps(t *testing.T) {
 		},
 		{
 			desc:             "No steps",
-			givenSteps:       []Step{},
+			givenSteps:       []*github.TaskStep{},
 			expectedSpans:    1, // Only the parent span should be created
 			expectedStatuses: nil,
 		},
@@ -152,9 +162,9 @@ func TestProcessSteps(t *testing.T) {
 			ss := rs.ScopeSpans().AppendEmpty()
 
 			traceID, _ := generateTraceID(123, 1)
-			parentSpanID := createParentSpan(ss, tc.givenSteps, WorkflowJob{}, traceID, logger)
+			parentSpanID := createParentSpan(ss, tc.givenSteps, &github.WorkflowJob{}, traceID, logger)
 
-			processSteps(ss, tc.givenSteps, WorkflowJob{}, traceID, parentSpanID, logger)
+			processSteps(ss, tc.givenSteps, &github.WorkflowJob{}, traceID, parentSpanID, logger)
 
 			startIdx := 1 // Skip the parent span if it's the first one
 			if len(tc.expectedStatuses) == 0 {
@@ -181,8 +191,8 @@ func TestResourceAndSpanAttributesCreation(t *testing.T) {
 			desc:            "WorkflowJobEvent Step Attributes",
 			payloadFilePath: "./testdata/completed/5_workflow_job_completed.json",
 			expectedSteps: []map[string]string{
-				{"ci.github.step.name": "Set up job", "ci.github.step.number": "1"},
-				{"ci.github.step.name": "Run actions/checkout@v3", "ci.github.step.number": "2"},
+				{"ci.github.workflow.job.step.name": "Set up job", "ci.github.workflow.job.step.number": "1"},
+				{"ci.github.workflow.job.step.name": "Run actions/checkout@v3", "ci.github.workflow.job.step.number": "2"},
 			},
 		},
 	}
