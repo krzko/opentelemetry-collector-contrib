@@ -1,4 +1,5 @@
 type: githubactions
+scope_name: otelcol/githubactionsreceiver
 
 status:
   class: receiver
