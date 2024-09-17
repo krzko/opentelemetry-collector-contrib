@@ -141,7 +141,7 @@ generate_job_span_id() {
   local run_id=$1
   local run_attempt=$2
   local job_name=$3
-  echo -n "${run_id}${run_attempt}${job_name}" | openssl dgst -sha256 | sed 's/^.* //' | cut -c-16
+  echo -n "${run_id}${run_attempt}${job_name}" | openssl dgst -sha256 | sed 's/^.* //' | cut -c17-32
 }
 
 generate_step_span_id() {
@@ -150,7 +150,7 @@ generate_step_span_id() {
   local job_name=$3
   local step_name=$4
   input="${run_id}${run_attempt}${job_name}${step_name}"
-  echo -n "$input" | openssl dgst -sha256 | sed 's/^.* //' | cut -c-16
+  echo -n "$input" | openssl dgst -sha256 | sed 's/^.* //' | cut -c17-32
 }
 
 # https://docs.github.com/en/actions/learn-github-actions/variables
@@ -159,8 +159,8 @@ job_span_id=$(generate_job_span_id ${GITHUB_RUN_ID} ${GITHUB_RUN_ATTEMPT} ${GITH
 step_span_id=$(generate_step_span_id ${GITHUB_RUN_ID} ${GITHUB_RUN_ATTEMPT} ${GITHUB_JOB} "your-step-name")
 
 echo "Trace ID: ${trace_id}"
-echo "Job Span ID: ${parent_span_id}"
-echo "Step Span ID: ${span_id:0:16}"
+echo "Job Span ID: ${job_span_id}"
+echo "Step Span ID: ${step_span_id}"
 ```
 
 ##### Generating IDs in Other Languages
