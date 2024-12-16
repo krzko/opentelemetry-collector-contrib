@@ -25,14 +25,14 @@ type githubActionsReceiver struct {
 	config         *Config
 	server         *http.Server
 	shutdownWG     sync.WaitGroup
-	createSettings receiver.CreateSettings
+	createSettings receiver.Settings
 	logger         *zap.Logger
 	obsrecv        *receiverhelper.ObsReport
 	ghClient       *github.Client
 }
 
 func newTracesReceiver(
-	params receiver.CreateSettings,
+	params receiver.Settings,
 	config *Config,
 	nextConsumer consumer.Traces,
 ) (*githubActionsReceiver, error) {

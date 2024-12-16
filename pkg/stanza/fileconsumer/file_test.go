@@ -4,6 +4,7 @@
 package fileconsumer
 
 import (
+	"compress/gzip"
 	"context"
 	"fmt"
 	"os"
@@ -140,7 +141,6 @@ func TestReadUsingNopEncoding(t *testing.T) {
 
 	for _, tc := range tcs {
 		t.Run(tc.testName, func(t *testing.T) {
-
 			tempDir := t.TempDir()
 			cfg := NewConfig().includeDir(tempDir)
 			cfg.StartAt = "beginning"
@@ -151,7 +151,7 @@ func TestReadUsingNopEncoding(t *testing.T) {
 			// Create a file, then start
 			temp := filetest.OpenTemp(t, tempDir)
 			bytesWritten, err := temp.Write(tc.input)
-			require.Greater(t, bytesWritten, 0)
+			require.Positive(t, bytesWritten)
 			require.NoError(t, err)
 			require.NoError(t, operator.Start(testutil.NewUnscopedMockPersister()))
 			defer func() {
@@ -224,7 +224,6 @@ func TestNopEncodingDifferentLogSizes(t *testing.T) {
 
 	for _, tc := range tcs {
 		t.Run(tc.testName, func(t *testing.T) {
-
 			tempDir := t.TempDir()
 			cfg := NewConfig().includeDir(tempDir)
 			cfg.StartAt = "beginning"
@@ -235,7 +234,7 @@ func TestNopEncodingDifferentLogSizes(t *testing.T) {
 			// Create a file, then start
 			temp := filetest.OpenTemp(t, tempDir)
 			bytesWritten, err := temp.Write(tc.input)
-			require.Greater(t, bytesWritten, 0)
+			require.Positive(t, bytesWritten)
 			require.NoError(t, err)
 			require.NoError(t, operator.Start(testutil.NewUnscopedMockPersister()))
 			defer func() {
@@ -324,6 +323,10 @@ func TestStartAtEnd(t *testing.T) {
 // to another file, while the symlink target is changed frequently, reads all
 // the logs from all the files ever targeted by that symlink.
 func TestSymlinkedFiles(t *testing.T) {
+	if runtime.GOARCH == "arm64" {
+		t.Skip("Failing consistently on ARM64. See https://github.com/open-telemetry/opentelemetry-collector-contrib/issues/34494")
+	}
+
 	if runtime.GOOS == "windows" {
 		t.Skip("Time sensitive tests disabled for now on Windows. See https://github.com/open-telemetry/opentelemetry-collector-contrib/issues/32715#issuecomment-2107737828")
 	}
@@ -1146,11 +1149,6 @@ func TestMaxBatching(t *testing.T) {
 // TestReadExistingLogsWithHeader tests that, when starting from beginning, we
 // read all the lines that are already there, and parses the headers
 func TestReadExistingLogsWithHeader(t *testing.T) {
-	require.NoError(t, featuregate.GlobalRegistry().Set(AllowHeaderMetadataParsing.ID(), true))
-	t.Cleanup(func() {
-		require.NoError(t, featuregate.GlobalRegistry().Set(AllowHeaderMetadataParsing.ID(), false))
-	})
-
 	tempDir := t.TempDir()
 	cfg := NewConfig().includeDir(tempDir)
 	cfg.StartAt = "beginning"
@@ -1242,11 +1240,6 @@ func TestDeleteAfterRead_SkipPartials(t *testing.T) {
 }
 
 func TestHeaderPersistance(t *testing.T) {
-	require.NoError(t, featuregate.GlobalRegistry().Set(AllowHeaderMetadataParsing.ID(), true))
-	t.Cleanup(func() {
-		require.NoError(t, featuregate.GlobalRegistry().Set(AllowHeaderMetadataParsing.ID(), false))
-	})
-
 	tempDir := t.TempDir()
 	cfg := NewConfig().includeDir(tempDir)
 	cfg.StartAt = "beginning"
@@ -1282,11 +1275,6 @@ func TestHeaderPersistance(t *testing.T) {
 }
 
 func TestHeaderPersistanceInHeader(t *testing.T) {
-	require.NoError(t, featuregate.GlobalRegistry().Set(AllowHeaderMetadataParsing.ID(), true))
-	t.Cleanup(func() {
-		require.NoError(t, featuregate.GlobalRegistry().Set(AllowHeaderMetadataParsing.ID(), false))
-	})
-
 	tempDir := t.TempDir()
 	cfg1 := NewConfig().includeDir(tempDir)
 	cfg1.StartAt = "beginning"
@@ -1335,7 +1323,7 @@ func TestStalePartialFingerprintDiscarded(t *testing.T) {
 	file1 := filetest.OpenTempWithPattern(t, tempDir, "*.log1")
 	file2 := filetest.OpenTempWithPattern(t, tempDir, "*.log2")
 
-	// Two same fingerprint file , and smaller than  config size
+	// Two same fingerprint file , and smaller than config size
 	content := "aaaaaaaaaaa"
 	filetest.WriteString(t, file1, content+"\n")
 	filetest.WriteString(t, file2, content+"\n")
@@ -1346,7 +1334,7 @@ func TestStalePartialFingerprintDiscarded(t *testing.T) {
 	operator.wg.Wait()
 	if runtime.GOOS != "windows" {
 		// On windows, we never keep files in previousPollFiles, so we don't expect to see them here
-		require.Equal(t, len(operator.tracker.PreviousPollFiles()), 1)
+		require.Len(t, operator.tracker.PreviousPollFiles(), 1)
 	}
 
 	// keep append data to file1 and file2
@@ -1430,7 +1418,7 @@ func TestNoLostPartial(t *testing.T) {
 	operator, sink := testManager(t, cfg)
 	operator.persister = testutil.NewMockPersister("test")
 
-	// Two same fingerprint file , and smaller than  config size
+	// Two same fingerprint file , and smaller than config size
 	file1 := filetest.OpenTempWithPattern(t, tempDir, "*.log1")
 	file2 := filetest.OpenTempWithPattern(t, tempDir, "*.log2")
 
@@ -1527,4 +1515,144 @@ func symlinkTestCreateLogFile(t *testing.T, tempDir string, fileIdx, numLogLines
 	}
 	temp1.Close()
 	return tokens
+}
+
+// TestReadGzipCompressedLogsFromBeginning tests that, when starting from beginning of a gzip compressed file, we
+// read all the lines that are already there
+func TestReadGzipCompressedLogsFromBeginning(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	cfg := NewConfig().includeDir(tempDir).withGzip()
+	cfg.StartAt = "beginning"
+	operator, sink := testManager(t, cfg)
+
+	// Create a file, then start
+	temp := filetest.OpenTempWithPattern(t, tempDir, "*.gz")
+	writer := gzip.NewWriter(temp)
+
+	_, err := writer.Write([]byte("testlog1\ntestlog2\n"))
+	require.NoError(t, err)
+
+	require.NoError(t, writer.Close())
+
+	require.NoError(t, operator.Start(testutil.NewUnscopedMockPersister()))
+	defer func() {
+		require.NoError(t, operator.Stop())
+	}()
+
+	sink.ExpectToken(t, []byte("testlog1"))
+	sink.ExpectToken(t, []byte("testlog2"))
+}
+
+// TestReadGzipCompressedLogsFromEnd tests that, when starting at the end of a gzip compressed file, we
+// read all the lines that are added afterward
+func TestReadGzipCompressedLogsFromEnd(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	cfg := NewConfig().includeDir(tempDir).withGzip()
+	cfg.StartAt = "end"
+	operator, sink := testManager(t, cfg)
+
+	// Create a file, then start
+	temp := filetest.OpenTempWithPattern(t, tempDir, "*.gz")
+
+	appendToLog := func(t *testing.T, content string) {
+		writer := gzip.NewWriter(temp)
+		_, err := writer.Write([]byte(content))
+		require.NoError(t, err)
+		require.NoError(t, writer.Close())
+	}
+
+	appendToLog(t, "testlog1\ntestlog2\n")
+
+	// poll for the first time - this should not lead to emitted
+	// logs as those were already in the existing file
+	operator.poll(context.TODO())
+
+	// append new content to the log and poll again - this should be picked up
+	appendToLog(t, "testlog3\n")
+	operator.poll(context.TODO())
+	sink.ExpectToken(t, []byte("testlog3"))
+
+	// do another iteration to verify correct setting of compressed reader offset
+	appendToLog(t, "testlog4\n")
+	operator.poll(context.TODO())
+	sink.ExpectToken(t, []byte("testlog4"))
+}
+
+func TestIncludeFileRecordNumber(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	cfg := NewConfig().includeDir(tempDir)
+	cfg.StartAt = "beginning"
+	cfg.IncludeFileRecordNumber = true
+	operator, sink := testManager(t, cfg)
+
+	// Create a file, then start
+	temp := filetest.OpenTemp(t, tempDir)
+	filetest.WriteString(t, temp, "testlog1\n")
+
+	require.NoError(t, operator.Start(testutil.NewUnscopedMockPersister()))
+	defer func() {
+		require.NoError(t, operator.Stop())
+	}()
+
+	sink.ExpectCall(t, []byte("testlog1"), map[string]any{
+		attrs.LogFileName:         filepath.Base(temp.Name()),
+		attrs.LogFileRecordNumber: int64(1),
+	})
+}
+
+func TestIncludeFileRecordNumberWithHeaderConfigured(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	cfg := NewConfig().includeDir(tempDir)
+	cfg.StartAt = "beginning"
+	cfg.IncludeFileRecordNumber = true
+	cfg = cfg.withHeader("^#", "(?P<header_attr>[A-z]+)")
+	operator, sink := testManager(t, cfg)
+
+	// Create a file, then start
+	temp := filetest.OpenTemp(t, tempDir)
+	filetest.WriteString(t, temp, "#abc\n#xyz: headerValue2\ntestlog1\n")
+
+	require.NoError(t, operator.Start(testutil.NewUnscopedMockPersister()))
+	defer func() {
+		require.NoError(t, operator.Stop())
+	}()
+
+	sink.ExpectCall(t, []byte("testlog1"), map[string]any{
+		attrs.LogFileName:         filepath.Base(temp.Name()),
+		attrs.LogFileRecordNumber: int64(1),
+		"header_attr":             "xyz",
+	})
+}
+
+func TestIncludeFileRecordNumberWithHeaderConfiguredButMissing(t *testing.T) {
+	t.Parallel()
+
+	tempDir := t.TempDir()
+	cfg := NewConfig().includeDir(tempDir)
+	cfg.StartAt = "beginning"
+	cfg.IncludeFileRecordNumber = true
+	cfg = cfg.withHeader("^#", "(?P<header_key>[A-z]+): (?P<header_value>[A-z]+)")
+	operator, sink := testManager(t, cfg)
+
+	// Create a file, then start
+	temp := filetest.OpenTemp(t, tempDir)
+	filetest.WriteString(t, temp, "testlog1\n")
+
+	require.NoError(t, operator.Start(testutil.NewUnscopedMockPersister()))
+	defer func() {
+		require.NoError(t, operator.Stop())
+	}()
+
+	sink.ExpectCall(t, []byte("testlog1"), map[string]any{
+		attrs.LogFileName:         filepath.Base(temp.Name()),
+		attrs.LogFileRecordNumber: int64(1),
+	})
 }

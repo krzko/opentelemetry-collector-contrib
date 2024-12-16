@@ -50,7 +50,7 @@ func TestCreateNewTracesReceiver(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.desc, func(t *testing.T) {
-			rec, err := newTracesReceiver(receivertest.NewNopCreateSettings(), &test.config, test.consumer)
+			rec, err := newTracesReceiver(receivertest.NewNopSettings(), &test.config, test.consumer)
 			if test.err == nil {
 				require.NotNil(t, rec)
 			} else {
