@@ -1,0 +1,70 @@
+# Docker Compose for Complex Policy Testing
+# Tests meta-policies (AND, Composite, Drop) and complex combinations
+
+services:
+  # OpenTelemetry Collector with complex policies
+  otelcol:
+    build:
+      context: ../shared
+      dockerfile: Dockerfile.otelcol
+    volumes:
+      - ./config/otelcol-config.yaml:/etc/otelcol/config.yaml:ro
+      - traces-output:/tmp
+    ports:
+      - "4317:4317"  # OTLP gRPC
+      - "4318:4318"  # OTLP HTTP
+      - "8888:8888"  # Prometheus metrics
+      - "8889:8889"  # Internal telemetry
+    environment:
+      - OTEL_LOG_LEVEL=debug
+    depends_on:
+      - redis
+      - fake-gcs
+    mem_limit: 512m
+    cpus: 1.0
+
+  # Redis for coordination
+  redis:
+    image: redis:7.2-alpine
+    ports:
+      - "6379:6379"
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Fake GCS server for testing
+  fake-gcs:
+    image: fsouza/fake-gcs-server:1.47.0
+    ports:
+      - "4443:4443"
+    command: ["-scheme", "http", "-host", "0.0.0.0", "-port", "4443"]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:4443/storage/v1/b"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Complex trace generator with various scenarios
+  trace-generator:
+    build:
+      context: ../object-only/generator
+      dockerfile: Dockerfile
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otelcol:4317
+      - OTEL_EXPORTER_OTLP_INSECURE=true
+      - TRACE_SIZE=mixed         # Generate mixed trace sizes
+      - SPAN_COUNT=500           # Medium traces
+      - TRACE_COUNT=100          # More traces for policy testing
+      - SERVICES=10              # Multiple services
+      - ERROR_RATE=20            # 20% error rate
+      - SLOW_RATE=30             # 30% slow requests
+      - DURATION_SECONDS=600     # 10 minute test
+      - ATTRIBUTES=complex       # Generate complex attributes
+    depends_on:
+      - otelcol
+
+volumes:
+  traces-output:

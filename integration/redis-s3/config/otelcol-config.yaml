@@ -1,0 +1,104 @@
+# OpenTelemetry Collector configuration for Redis + S3 testing
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Memory limiter to trigger spillover
+  memory_limiter:
+    limit_mib: 128
+    spike_limit_mib: 32
+    check_interval: 1s
+
+  # Distributed tail sampling with Redis + S3
+  tailsamplingprocessor:
+    # Trace buffer configuration
+    decision_wait: 10s
+    num_traces: 1000
+    expected_new_traces_per_sec: 100
+    
+    # Storage configuration - Redis primary with S3 spillover
+    storage:
+      redis:
+        endpoints: ["redis:6379"]
+        keyspace: "ts"
+        ttl: 300s
+        hot_limits:
+          max_spans_per_trace: 1000
+          max_bytes_per_trace: 1048576
+        spill:
+          enabled: true
+          backend: s3
+          bucket: tail-sampling-test
+          prefix: "integration-test"
+          segment_bytes: 8388608  # 8MB
+          codec: avro  # Test Avro format with S3
+          s3_endpoint: "http://minio:9000"
+          s3_force_path_style: true
+          s3_region: "us-east-1"
+    
+    # Sampling policies (more complex for S3 testing)
+    policies:
+      - name: error_sampling
+        type: status_code
+        status_code:
+          status_codes: [ERROR]
+      
+      - name: high_latency
+        type: latency
+        latency:
+          threshold_ms: 500
+      
+      - name: service_sampling
+        type: string_attribute
+        string_attribute:
+          key: service.name
+          values: ["payment-service", "order-service"]
+      
+      - name: rate_limited
+        type: rate_limiting
+        rate_limiting:
+          spans_per_second: 100
+      
+      - name: probabilistic_fallback
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: 0.5
+
+exporters:
+  # Debug exporter to verify sampling decisions
+  debug:
+    verbosity: detailed
+  
+  # Logging exporter for trace analysis
+  logging:
+    loglevel: debug
+
+  # Prometheus metrics for monitoring
+  prometheus:
+    endpoint: "0.0.0.0:8888"
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, tailsamplingprocessor]
+      exporters: [debug, logging]
+    
+    metrics:
+      receivers: []
+      processors: []
+      exporters: [prometheus]
+
+  extensions: []
+  
+  telemetry:
+    logs:
+      level: debug
+    metrics:
+      address: 0.0.0.0:8889

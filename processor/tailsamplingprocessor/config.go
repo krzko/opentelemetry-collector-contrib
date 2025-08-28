@@ -47,6 +47,36 @@ const (
 	OTTLCondition PolicyType = "ottl_condition"
 )
 
+// StorageType indicates the type of storage backend for trace buffering.
+type StorageType string
+
+const (
+	// StorageTypeMemory uses in-memory storage (default, backward compatible).
+	StorageTypeMemory StorageType = "memory"
+	// StorageTypeRedis uses Redis as the storage backend.
+	StorageTypeRedis StorageType = "redis"
+)
+
+// SpillBackend indicates the object storage backend for spillover.
+type SpillBackend string
+
+const (
+	// SpillBackendGCS uses Google Cloud Storage.
+	SpillBackendGCS SpillBackend = "gcs"
+	// SpillBackendS3 uses AWS S3.
+	SpillBackendS3 SpillBackend = "s3"
+)
+
+// SpillCodec indicates the encoding format for spilled data.
+type SpillCodec string
+
+const (
+	// SpillCodecAvro uses Apache Avro format.
+	SpillCodecAvro SpillCodec = "avro"
+	// SpillCodecJSONLZstd uses JSONL with zstd compression.
+	SpillCodecJSONLZstd SpillCodec = "jsonl_zstd"
+)
+
 // sharedPolicyCfg holds the common configuration to all policies that are used in derivative policy configurations
 // such as the and & composite policies.
 type sharedPolicyCfg struct {
@@ -246,6 +276,76 @@ type DecisionCacheConfig struct {
 	NonSampledCacheSize int `mapstructure:"non_sampled_cache_size"`
 }
 
+// StorageConfig holds the configuration for trace buffer storage backend.
+type StorageConfig struct {
+	// Type specifies the storage backend type (memory, redis).
+	Type StorageType `mapstructure:"type"`
+	// Redis holds Redis-specific configuration.
+	Redis *RedisConfig `mapstructure:"redis"`
+	// Spillover holds object storage spillover configuration.
+	Spillover *SpilloverConfig `mapstructure:"spillover"`
+	// HotLimits defines per-trace limits for hot storage.
+	HotLimits HotLimitsConfig `mapstructure:"hot_limits"`
+	// TenantQuotas defines per-tenant resource quotas.
+	TenantQuotas TenantQuotaConfig `mapstructure:"tenant_quotas"`
+	// DecisionTTL is how long to cache decisions to suppress rework.
+	DecisionTTL time.Duration `mapstructure:"decision_ttl"`
+}
+
+// RedisConfig holds Redis-specific configuration.
+type RedisConfig struct {
+	// Endpoints is the list of Redis server addresses.
+	Endpoints []string `mapstructure:"endpoints"`
+	// Cluster indicates whether to use Redis Cluster mode.
+	Cluster bool `mapstructure:"cluster"`
+	// Keyspace is the Redis key prefix (e.g., "ts:").
+	Keyspace string `mapstructure:"keyspace"`
+	// EnableAOF enables Redis Append-Only File persistence.
+	EnableAOF bool `mapstructure:"enable_aof"`
+	// BackoffMin is the minimum backoff duration for retries.
+	BackoffMin time.Duration `mapstructure:"backoff_min"`
+	// BackoffMax is the maximum backoff duration for retries.
+	BackoffMax time.Duration `mapstructure:"backoff_max"`
+}
+
+// SpilloverConfig holds object storage spillover configuration.
+type SpilloverConfig struct {
+	// Backend specifies the object storage backend (gcs, s3).
+	Backend SpillBackend `mapstructure:"backend"`
+	// Bucket is the storage bucket name (gs://bucket or s3://bucket).
+	Bucket string `mapstructure:"bucket"`
+	// Prefix is the object key prefix template.
+	Prefix string `mapstructure:"prefix"`
+	// Codec specifies the encoding format for spilled data.
+	Codec SpillCodec `mapstructure:"codec"`
+	// SegmentBytes is the target size for spill segments.
+	SegmentBytes int64 `mapstructure:"segment_bytes"`
+	// Parallelism controls concurrent uploads/downloads.
+	Parallelism int `mapstructure:"parallelism"`
+}
+
+// HotLimitsConfig defines per-trace limits for hot storage.
+type HotLimitsConfig struct {
+	// MaxSpansPerTrace is the maximum number of spans per trace in hot storage.
+	MaxSpansPerTrace int `mapstructure:"max_spans_per_trace"`
+	// MaxBytesPerTrace is the maximum bytes per trace in hot storage.
+	MaxBytesPerTrace int64 `mapstructure:"max_bytes_per_trace"`
+	// DefaultTTL is the default TTL for hot storage keys.
+	DefaultTTL time.Duration `mapstructure:"default_ttl"`
+	// LeaseTTL is the TTL for trace evaluation leases.
+	LeaseTTL time.Duration `mapstructure:"lease_ttl"`
+}
+
+// TenantQuotaConfig defines per-tenant resource quotas.
+type TenantQuotaConfig struct {
+	// MaxInFlightTraces is the maximum number of active traces per tenant.
+	MaxInFlightTraces int `mapstructure:"max_inflight_traces"`
+	// MaxHotBytes is the maximum bytes in hot storage per tenant.
+	MaxHotBytes int64 `mapstructure:"max_hot_bytes"`
+	// Policy defines the quota enforcement policy.
+	Policy string `mapstructure:"policy"`
+}
+
 // Config holds the configuration for tail-based sampling.
 type Config struct {
 	// DecisionWait is the desired wait time from the arrival of the first span of
@@ -269,4 +369,6 @@ type Config struct {
 	Options []Option `mapstructure:"-"`
 	// Make decision as soon as a policy matches
 	SampleOnFirstMatch bool `mapstructure:"sample_on_first_match"`
+	// Storage configures the trace buffer storage backend.
+	Storage *StorageConfig `mapstructure:"storage"`
 }

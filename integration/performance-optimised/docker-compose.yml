@@ -1,0 +1,113 @@
+# Docker Compose for Performance-Optimised Testing
+# Tests high-throughput scenarios optimised for serverless services
+
+services:
+  # OpenTelemetry Collector with performance optimisations
+  otelcol:
+    build:
+      context: ../shared
+      dockerfile: Dockerfile.otelcol
+    volumes:
+      - ./config/otelcol-config.yaml:/etc/otelcol/config.yaml:ro
+      - traces-output:/tmp
+    ports:
+      - "4317:4317"  # OTLP gRPC
+      - "4318:4318"  # OTLP HTTP
+      - "8888:8888"  # Prometheus metrics
+      - "8889:8889"  # Internal telemetry
+    environment:
+      - OTEL_LOG_LEVEL=warn  # Minimal logging for performance
+      - GOMAXPROCS=2
+    depends_on:
+      - redis
+      - minio
+    mem_limit: 512m
+    cpus: 2.0
+
+  # Redis with performance tuning
+  redis:
+    image: redis:7.2-alpine
+    ports:
+      - "6379:6379"
+    command: |
+      redis-server 
+      --maxmemory 128mb 
+      --maxmemory-policy allkeys-lru 
+      --tcp-keepalive 60 
+      --tcp-backlog 511 
+      --databases 1
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 2s
+      retries: 5
+
+  # MinIO with performance settings
+  minio:
+    image: minio/minio:RELEASE.2024-01-01T16-36-33Z
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Create bucket for performance test
+  createbucket:
+    image: minio/mc:RELEASE.2024-01-01T05-03-17Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      /usr/bin/mc alias set myminio http://minio:9000 minioadmin minioadmin;
+      /usr/bin/mc mb myminio/performance-test;
+      /usr/bin/mc policy set public myminio/performance-test;
+      exit 0;
+      "
+
+  # High-throughput trace generator
+  trace-generator:
+    build:
+      context: ../object-only/generator
+      dockerfile: Dockerfile
+    environment:
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otelcol:4317
+      - OTEL_EXPORTER_OTLP_INSECURE=true
+      - TRACE_SIZE=small         # Many small traces for throughput
+      - SPAN_COUNT=10            # Small traces
+      - TRACE_COUNT=1000         # High volume
+      - SERVICES=5               # Moderate services
+      - RATE_PER_SECOND=100      # High rate
+      - DURATION_SECONDS=300     # 5 minute stress test
+      - WORKERS=5                # Multiple worker threads
+    depends_on:
+      - otelcol
+
+  # Performance monitoring
+  prometheus:
+    image: prom/prometheus:v2.40.0
+    ports:
+      - "9090:9090"
+    volumes:
+      - prometheus-config:/etc/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=1h'
+      - '--web.enable-lifecycle'
+
+volumes:
+  minio-data:
+  traces-output:
+  prometheus-config:

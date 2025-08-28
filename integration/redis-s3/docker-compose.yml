@@ -1,0 +1,44 @@
+# Redis + S3 Integration Test
+# Tests distributed tail sampling with Redis coordination and S3 spillover
+
+include:
+  - ../shared/docker-compose.services.yml
+
+services:
+  otel-collector:
+    extends:
+      file: ../shared/docker-compose.services.yml
+      service: otel-collector
+    volumes:
+      - ./config:/config:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+      minio-setup:
+        condition: service_completed_successfully
+    environment:
+      - OTEL_LOG_LEVEL=debug
+      - REDIS_ENDPOINT=redis:6379
+      - S3_ENDPOINT=http://minio:9000
+      - S3_BUCKET=tail-sampling-test
+      - AWS_ACCESS_KEY_ID=minioadmin
+      - AWS_SECRET_ACCESS_KEY=minioadmin123
+
+  # Test runner with S3-specific scenarios
+  test-runner:
+    image: alpine:latest
+    depends_on:
+      - otel-collector
+    volumes:
+      - ./tests:/tests:ro
+    command: >
+      /bin/sh -c "
+      echo 'Running Redis + S3 integration tests...';
+      apk add --no-cache curl jq aws-cli;
+      cd /tests;
+      ./run-tests.sh redis-s3;
+      "
+
+volumes:
+  redis_data:
+  minio_data:

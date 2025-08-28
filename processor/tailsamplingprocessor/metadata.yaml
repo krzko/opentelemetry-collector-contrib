@@ -27,6 +27,26 @@ attributes:
     enum: [sampled, not_sampled, dropped]
     type: string
 
+  storage_type:
+    description: Type of storage backend used
+    enum: [memory, redis, hybrid]
+    type: string
+
+  operation:
+    description: Storage operation type
+    enum: [append, fetch, lease_acquire, lease_release, decision_set, decision_get, spill, rehydrate]
+    type: string
+
+  backend:
+    description: Object storage backend type
+    enum: [gcs, s3]
+    type: string
+
+  error_type:
+    description: Type of storage error encountered
+    enum: [connection, timeout, capacity, script_error, auth, not_found]
+    type: string
+
 telemetry:
   metrics:
     processor_tail_sampling_sampling_decision_latency:
@@ -125,3 +145,111 @@ telemetry:
         value_type: int
         monotonic: true
       attributes: [sampled]
+
+    # Storage-specific metrics for distributed tail sampling
+
+    processor_tail_sampling_redis_operations_total:
+      description: Total number of Redis operations performed
+      unit: "{operations}"
+      enabled: true
+      sum:
+        value_type: int
+        monotonic: true
+      attributes: [operation]
+
+    processor_tail_sampling_redis_operation_duration:
+      description: Duration of Redis operations in microseconds
+      unit: µs
+      enabled: true
+      histogram:
+        value_type: int
+        bucket_boundaries: [100, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000, 200000, 500000]
+      attributes: [operation]
+
+    processor_tail_sampling_spill_segments_created_total:
+      description: Total number of object storage segments created for spill operations
+      unit: "{segments}"
+      enabled: true
+      sum:
+        value_type: int
+        monotonic: true
+      attributes: [backend]
+
+    processor_tail_sampling_spill_operation_duration:
+      description: Duration of spill write operations in milliseconds
+      unit: ms
+      enabled: true
+      histogram:
+        value_type: int
+        bucket_boundaries: [10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 20000]
+      attributes: [backend]
+
+    processor_tail_sampling_lease_acquisitions_total:
+      description: Total number of trace lease acquisitions attempted
+      unit: "{leases}"
+      enabled: true
+      sum:
+        value_type: int
+        monotonic: true
+      attributes: [storage_type]
+
+    processor_tail_sampling_lease_contentions_total:
+      description: Total number of lease contentions (failed acquisitions due to existing lease)
+      unit: "{contentions}"
+      enabled: true
+      sum:
+        value_type: int
+        monotonic: true
+      attributes: [storage_type]
+
+    processor_tail_sampling_storage_errors_total:
+      description: Total number of storage operation errors
+      unit: "{errors}"
+      enabled: true
+      sum:
+        value_type: int
+        monotonic: true
+      attributes: [storage_type, operation, error_type]
+
+    processor_tail_sampling_decision_cache_hits_total:
+      description: Total number of sampling decision cache hits
+      unit: "{hits}"
+      enabled: true
+      sum:
+        value_type: int
+        monotonic: true
+      attributes: [storage_type]
+
+    processor_tail_sampling_rehydration_operations_total:
+      description: Total number of trace rehydration operations from object storage
+      unit: "{operations}"
+      enabled: true
+      sum:
+        value_type: int
+        monotonic: true
+      attributes: [backend]
+
+    processor_tail_sampling_rehydration_spans_total:
+      description: Total number of spans rehydrated from object storage
+      unit: "{spans}"
+      enabled: true
+      sum:
+        value_type: int
+        monotonic: true
+      attributes: [backend]
+
+    processor_tail_sampling_active_traces_by_storage:
+      description: Number of active traces per storage type
+      unit: "{traces}"
+      enabled: true
+      gauge:
+        value_type: int
+      attributes: [storage_type]
+
+    processor_tail_sampling_storage_bytes_used:
+      description: Approximate bytes used by storage backend
+      unit: By
+      enabled: true
+      gauge:
+        value_type: int
+      attributes: [storage_type]

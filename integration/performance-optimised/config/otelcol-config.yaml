@@ -1,0 +1,141 @@
+# OpenTelemetry Collector configuration for Performance-Optimised Testing
+# Tests high-throughput scenarios with optimised settings for serverless services
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+        max_recv_msg_size: 16777216  # 16MB
+        max_concurrent_streams: 100
+      http:
+        endpoint: 0.0.0.0:4318
+        max_request_body_size: 16777216  # 16MB
+
+processors:
+  # Optimised memory limiter for high throughput
+  memory_limiter:
+    limit_mib: 256
+    spike_limit_mib: 64
+    check_interval: 1s
+
+  # Performance-optimised tail sampling
+  tailsamplingprocessor:
+    # Fast decision making
+    decision_wait: 5s
+    num_traces: 2000  # Higher concurrent traces
+    expected_new_traces_per_sec: 500  # High throughput
+    sample_on_first_match: true  # Early termination for performance
+    
+    # Storage configuration - Redis with aggressive caching
+    storage:
+      redis:
+        endpoints: ["redis:6379"]
+        keyspace: "perf-test"
+        ttl: 120s  # Shorter TTL for faster cleanup
+        hot_limits:
+          max_spans_per_trace: 2000  # Reasonable limit for performance
+          max_bytes_per_trace: 524288  # 512KB per trace
+        connection:
+          max_retries: 3
+          retry_backoff: 100ms
+          pool_size: 20  # Higher pool for concurrency
+        spill:
+          enabled: true
+          backend: s3
+          bucket: performance-test
+          prefix: "high-throughput"
+          segment_bytes: 2097152  # 2MB segments
+          codec: jsonl.zst  # Fast compression
+          zstd_level: 1  # Fast compression level
+          s3_endpoint: "http://minio:9000"
+          s3_force_path_style: true
+          s3_region: "us-east-1"
+    
+    # Performance-optimised policies (ordered for efficiency)
+    policies:
+      # Fast drop policies first (highest precedence)
+      - name: drop_noise
+        type: drop
+        drop:
+          policies:
+            - name: health_checks
+              type: string_attribute
+              string_attribute:
+                key: http.route
+                values: ["/health", "/ping"]
+      
+      # Fast error sampling (no complex evaluation needed)
+      - name: always_sample_errors
+        type: status_code
+        status_code:
+          status_codes: [ERROR]
+      
+      # Simple latency threshold
+      - name: slow_requests
+        type: latency
+        latency:
+          threshold_ms: 500
+      
+      # Service-based sampling (fast string lookup)
+      - name: critical_services
+        type: string_attribute
+        string_attribute:
+          key: service.name
+          values: ["payment", "auth", "checkout"]
+          enable_regex_matching: false  # Disable regex for performance
+          cache_max_size: 1000  # Enable caching
+      
+      # Rate limiting for traffic shaping
+      - name: rate_control
+        type: rate_limiting
+        rate_limiting:
+          spans_per_second: 1000
+      
+      # Simple probabilistic fallback
+      - name: probabilistic_base
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: 1.0
+
+    # Decision caching for performance
+    decision_cache:
+      sampled_cache_size: 10000      # Large cache for performance
+      non_sampled_cache_size: 20000  # Larger cache for non-sampled
+
+exporters:
+  # Minimal debug output for performance
+  debug:
+    verbosity: basic
+  
+  # File export with compression
+  file:
+    path: "/tmp/perf-traces.jsonl.gz"
+    format: json
+    compression: gzip
+
+  # Prometheus for performance metrics
+  prometheus:
+    endpoint: "0.0.0.0:8888"
+    enable_open_metrics: true
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, tailsamplingprocessor]
+      exporters: [file]  # Skip debug for performance
+    
+    metrics:
+      receivers: []
+      processors: []
+      exporters: [prometheus]
+
+  extensions: []
+  
+  telemetry:
+    logs:
+      level: warn  # Minimal logging for performance
+    metrics:
+      address: 0.0.0.0:8889
+      level: basic

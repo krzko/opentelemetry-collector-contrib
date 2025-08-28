@@ -1,0 +1,119 @@
+# OpenTelemetry Collector configuration for Large Trace Streaming Testing
+# Tests treaming evaluation capabilities for traces >10,000 spans
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+        max_recv_msg_size: 67108864  # 64MB for large traces
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Generous memory limits for large trace testing
+  memory_limiter:
+    limit_mib: 512
+    spike_limit_mib: 128
+    check_interval: 5s
+
+  # Tail sampling optimised for large traces with streaming
+  tailsamplingprocessor:
+    # Extended decision wait for large traces
+    decision_wait: 30s
+    num_traces: 100  # Fewer concurrent traces but much larger
+    expected_new_traces_per_sec: 10
+    
+    # Storage configuration - Memory with aggressive spillover
+    storage:
+      memory:
+        spill:
+          enabled: true
+          backend: s3
+          bucket: large-traces-test
+          prefix: "streaming-test"
+          segment_bytes: 16777216  # 16MB segments for large traces
+          codec: avro  # Avro for large trace compression
+          s3_endpoint: "http://minio:9000"
+          s3_force_path_style: true
+          s3_region: "us-east-1"
+    
+    # Comprehensive policies to test streaming evaluation
+    policies:
+      # Simple policies that work well with streaming
+      - name: critical_errors
+        type: status_code
+        status_code:
+          status_codes: [ERROR]
+      
+      - name: ultra_slow_traces
+        type: latency
+        latency:
+          threshold_ms: 5000  # Only very slow traces
+      
+      # Attribute-based policies for streaming
+      - name: microservice_filter
+        type: string_attribute
+        string_attribute:
+          key: service.name
+          values: ["user-service", "payment-service", "inventory-service"]
+      
+      - name: environment_filter
+        type: string_attribute
+        string_attribute:
+          key: deployment.environment
+          values: ["production", "staging"]
+      
+      # Numeric attributes for large traces
+      - name: high_span_count
+        type: span_count
+        span_count:
+          min_spans: 1000  # Only traces with 1000+ spans
+          max_spans: 50000
+      
+      # Rate limiting for stream processing
+      - name: controlled_rate
+        type: rate_limiting
+        rate_limiting:
+          spans_per_second: 1000  # Higher rate for large traces
+      
+      # Conservative probabilistic sampling
+      - name: probabilistic_large
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: 5.0  # Lower percentage due to large traces
+
+exporters:
+  # Debug with reduced verbosity for large traces
+  debug:
+    verbosity: basic
+  
+  # File exporter for large trace analysis
+  file:
+    path: "/tmp/large-traces.jsonl"
+    format: json
+
+  # Prometheus metrics for performance monitoring
+  prometheus:
+    endpoint: "0.0.0.0:8888"
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, tailsamplingprocessor]
+      exporters: [debug, file]
+    
+    metrics:
+      receivers: []
+      processors: []
+      exporters: [prometheus]
+
+  extensions: []
+  
+  telemetry:
+    logs:
+      level: info  # Reduced logging for large trace volumes
+    metrics:
+      address: 0.0.0.0:8889
+      level: detailed

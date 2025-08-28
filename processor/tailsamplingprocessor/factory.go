@@ -44,5 +44,9 @@ func createTracesProcessor(
 	if telemetry.IsRecordPolicyEnabled() {
 		tCfg.Options = append(tCfg.Options, withRecordPolicy())
 	}
+
+	// Storage configuration is handled separately from the processor
+	// The processor only uses sync.Map for simplicity and backward compatibility
+
 	return newTracesProcessor(ctx, params, nextConsumer, *tCfg)
 }

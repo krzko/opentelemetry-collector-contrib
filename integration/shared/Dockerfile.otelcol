@@ -1,0 +1,23 @@
+# Dockerfile for OpenTelemetry Collector with tail sampling processor
+FROM golang:1.24-alpine AS builder
+
+WORKDIR /build
+
+# Copy the tail sampling processor source
+COPY . .
+
+# Build the collector with the tail sampling processor
+RUN go mod tidy && \
+    go build -o otelcol-tailsampling ./cmd/otelcol
+
+FROM alpine:latest
+
+RUN apk --no-cache add ca-certificates curl
+
+WORKDIR /
+
+COPY --from=builder /build/otelcol-tailsampling .
+
+EXPOSE 4317 4318 8888 8889
+
+ENTRYPOINT ["./otelcol-tailsampling"]

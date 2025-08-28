@@ -1,0 +1,42 @@
+# Redis + GCS Integration Test
+# Tests distributed tail sampling with Redis coordination and GCS spillover
+
+include:
+  - ../shared/docker-compose.services.yml
+
+services:
+  otel-collector:
+    extends:
+      file: ../shared/docker-compose.services.yml
+      service: otel-collector
+    volumes:
+      - ./config:/config:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+      gcs-setup:
+        condition: service_completed_successfully
+    environment:
+      - OTEL_LOG_LEVEL=debug
+      - REDIS_ENDPOINT=redis:6379
+      - GCS_ENDPOINT=http://fake-gcs:4443
+      - GCS_BUCKET=tail-sampling-test
+
+  # Test runner with specific scenarios
+  test-runner:
+    image: alpine:latest
+    depends_on:
+      - otel-collector
+    volumes:
+      - ./tests:/tests:ro
+    command: >
+      /bin/sh -c "
+      echo 'Running Redis + GCS integration tests...';
+      apk add --no-cache curl jq;
+      cd /tests;
+      ./run-tests.sh redis-gcs;
+      "
+
+volumes:
+  redis_data:
+  gcs_data:

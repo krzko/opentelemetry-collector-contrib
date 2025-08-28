@@ -1,0 +1,99 @@
+# OpenTelemetry Collector configuration for Minimal Memory Testing
+# Tests the processor under severe memory constraints (256MB scenarios)
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+        max_recv_msg_size: 1048576  # 1MB limit
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Very aggressive memory limiting
+  memory_limiter:
+    limit_mib: 32  # Only 32MB total
+    spike_limit_mib: 8
+    check_interval: 500ms
+
+  # Tail sampling optimised for minimal memory
+  tailsamplingprocessor:
+    # Minimal buffer settings
+    decision_wait: 3s  # Fast decisions to free memory
+    num_traces: 50     # Very small trace buffer
+    expected_new_traces_per_sec: 20
+    sample_on_first_match: true  # Early exit for memory efficiency
+    
+    # Storage configuration - aggressive spillover
+    storage:
+      memory:
+        spill:
+          enabled: true
+          backend: s3
+          bucket: minimal-memory-test
+          prefix: "low-memory"
+          segment_bytes: 262144  # 256KB segments (small)
+          codec: jsonl.zst
+          zstd_level: 1  # Fast compression
+          s3_endpoint: "http://minio:9000"
+          s3_force_path_style: true
+          s3_region: "us-east-1"
+    
+    # Minimal policies to reduce memory usage
+    policies:
+      # Only critical errors
+      - name: errors_only
+        type: status_code
+        status_code:
+          status_codes: [ERROR]
+      
+      # Very selective service filtering
+      - name: critical_service_only
+        type: string_attribute
+        string_attribute:
+          key: service.name
+          values: ["payment-service"]  # Only one service
+          cache_max_size: 100  # Small cache
+      
+      # Conservative probabilistic
+      - name: minimal_probabilistic
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: 0.1  # Very low sampling rate
+
+    # Minimal decision caching
+    decision_cache:
+      sampled_cache_size: 100
+      non_sampled_cache_size: 500
+
+exporters:
+  # No debug output to save memory
+  file:
+    path: "/tmp/minimal-traces.json"
+    format: json
+
+  # Basic metrics only
+  prometheus:
+    endpoint: "0.0.0.0:8888"
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, tailsamplingprocessor]
+      exporters: [file]
+    
+    metrics:
+      receivers: []
+      processors: []
+      exporters: [prometheus]
+
+  extensions: []
+  
+  telemetry:
+    logs:
+      level: error  # Only errors to save memory
+    metrics:
+      address: 0.0.0.0:8889
+      level: none   # No internal metrics to save memory

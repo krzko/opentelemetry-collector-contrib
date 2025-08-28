@@ -1,0 +1,56 @@
+# Object Storage Only Integration Test
+# Tests tail sampling with direct object storage (no Redis coordination)
+# Note: This will be slower but simpler for basic functionality testing
+
+include:
+  - ../shared/docker-compose.services.yml
+
+services:
+  # Use only MinIO for this test (simpler setup)
+  otel-collector:
+    extends:
+      file: ../shared/docker-compose.services.yml
+      service: otel-collector
+    volumes:
+      - ./config:/config:ro
+    depends_on:
+      minio-setup:
+        condition: service_completed_successfully
+    environment:
+      - OTEL_LOG_LEVEL=debug
+      - S3_ENDPOINT=http://minio:9000
+      - S3_BUCKET=tail-sampling-test
+      - AWS_ACCESS_KEY_ID=minioadmin
+      - AWS_SECRET_ACCESS_KEY=minioadmin123
+
+  # Lightweight test runner for basic functionality
+  test-runner:
+    image: alpine:latest
+    depends_on:
+      - otel-collector
+    volumes:
+      - ./tests:/tests:ro
+    command: >
+      /bin/sh -c "
+      echo 'Running Object Storage Only integration tests...';
+      apk add --no-cache curl jq aws-cli;
+      cd /tests;
+      ./run-tests.sh object-only;
+      "
+
+  # Simple trace generator for basic testing
+  trace-generator:
+    image: golang:1.21-alpine
+    depends_on:
+      - otel-collector
+    volumes:
+      - ./generator:/app:ro
+    working_dir: /app
+    command: >
+      /bin/sh -c "
+      echo 'Starting simple trace generation...';
+      go run main.go;
+      "
+
+volumes:
+  minio_data:

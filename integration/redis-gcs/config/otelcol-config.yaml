@@ -1,0 +1,98 @@
+# OpenTelemetry Collector configuration for Redis + GCS testing
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Memory limiter to trigger spillover
+  memory_limiter:
+    limit_mib: 128
+    spike_limit_mib: 32
+    check_interval: 1s
+
+  # Distributed tail sampling with Redis + GCS
+  tailsamplingprocessor:
+    # Trace buffer configuration
+    decision_wait: 10s
+    num_traces: 1000
+    expected_new_traces_per_sec: 100
+    
+    # Storage configuration - Redis primary with GCS spillover
+    storage:
+      redis:
+        endpoints: ["redis:6379"]
+        keyspace: "ts"
+        ttl: 300s
+        hot_limits:
+          max_spans_per_trace: 1000
+          max_bytes_per_trace: 1048576
+        spill:
+          enabled: true
+          backend: gcs
+          bucket: tail-sampling-test
+          prefix: "integration-test"
+          segment_bytes: 8388608  # 8MB
+          codec: jsonl.zst
+          zstd_level: 3
+          gcs_endpoint: "http://fake-gcs:4443"
+    
+    # Sampling policies
+    policies:
+      - name: errors_always
+        type: status_code
+        status_code:
+          status_codes: [ERROR]
+      
+      - name: slow_traces
+        type: latency
+        latency:
+          threshold_ms: 1000
+      
+      - name: probabilistic_sample
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: 1.0
+      
+      - name: attribute_filter
+        type: string_attribute
+        string_attribute:
+          key: service.name
+          values: ["critical-service"]
+
+exporters:
+  # Debug exporter to verify sampling decisions
+  debug:
+    verbosity: detailed
+  
+  # Logging exporter for trace analysis
+  logging:
+    loglevel: debug
+
+  # Prometheus metrics for monitoring
+  prometheus:
+    endpoint: "0.0.0.0:8888"
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, tailsamplingprocessor]
+      exporters: [debug, logging]
+    
+    metrics:
+      receivers: []
+      processors: []
+      exporters: [prometheus]
+
+  extensions: []
+  
+  telemetry:
+    logs:
+      level: debug
+    metrics:
+      address: 0.0.0.0:8889

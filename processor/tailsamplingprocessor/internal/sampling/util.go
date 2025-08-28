@@ -104,3 +104,4 @@ func SetAttrOnScopeSpans(data *TraceData, attrName, attrKey string) {
 		}
 	}
 }
+

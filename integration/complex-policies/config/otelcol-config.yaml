@@ -1,0 +1,187 @@
+# OpenTelemetry Collector configuration for Complex Policy Testing
+# Tests meta-policies (AND, Composite, Drop) and complex policy combinations
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  memory_limiter:
+    limit_mib: 256
+    spike_limit_mib: 64
+    check_interval: 2s
+
+  # Tail sampling with complex meta-policies
+  tailsamplingprocessor:
+    decision_wait: 15s
+    num_traces: 500
+    expected_new_traces_per_sec: 50
+    sample_on_first_match: false  # Evaluate ALL policies for complex decisions
+    
+    # Storage configuration - Redis for coordination
+    storage:
+      redis:
+        endpoints: ["redis:6379"]
+        keyspace: "complex-policies"
+        ttl: 600s
+        hot_limits:
+          max_spans_per_trace: 5000
+          max_bytes_per_trace: 2097152  # 2MB
+        spill:
+          enabled: true
+          backend: gcs
+          bucket: complex-policies-test
+          prefix: "meta-policies"
+          segment_bytes: 4194304  # 4MB
+          codec: jsonl.zst
+          gcs_endpoint: "http://fake-gcs:4443"
+    
+    # Complex meta-policy combinations
+    policies:
+      # Drop policy (highest precedence) - explicitly drop unwanted traces
+      - name: drop_health_checks
+        type: drop
+        drop:
+          policies:
+            - name: health_check_filter
+              type: string_attribute
+              string_attribute:
+                key: http.route
+                values: ["/health", "/metrics", "/ready", "/live"]
+            
+            - name: synthetic_filter
+              type: string_attribute
+              string_attribute:
+                key: user_agent.original
+                values: ["monitoring-bot", "health-checker"]
+      
+      # AND policy - require multiple conditions
+      - name: critical_business_traces
+        type: and
+        and:
+          policies:
+            - name: error_condition
+              type: status_code
+              status_code:
+                status_codes: [ERROR]
+            
+            - name: critical_service
+              type: string_attribute
+              string_attribute:
+                key: service.name
+                values: ["payment-service", "user-auth", "billing"]
+            
+            - name: production_env
+              type: string_attribute
+              string_attribute:
+                key: deployment.environment
+                values: ["production"]
+      
+      # Composite policy - weighted sampling across categories
+      - name: balanced_sampling
+        type: composite
+        composite:
+          max_total_spans_per_second: 500
+          policy_order: [performance_traces, error_traces, normal_traces]
+          rate_allocation:
+            - policy: performance_traces
+              percent: 40
+            - policy: error_traces  
+              percent: 40
+            - policy: normal_traces
+              percent: 20
+          sub_policies:
+            - name: performance_traces
+              type: latency
+              latency:
+                threshold_ms: 1000
+            
+            - name: error_traces
+              type: status_code
+              status_code:
+                status_codes: [ERROR]
+            
+            - name: normal_traces
+              type: probabilistic
+              probabilistic:
+                sampling_percentage: 1.0
+      
+      # Boolean attribute filtering
+      - name: feature_flag_traces
+        type: boolean_attribute
+        boolean_attribute:
+          key: feature.experimental_enabled
+          value: true
+      
+      # OTTL-based complex filtering
+      - name: complex_span_conditions
+        type: ottl_condition
+        ottl_condition:
+          span_conditions:
+            - 'attributes["http.status_code"] >= 500'
+            - 'duration >= duration("2s")'
+            - 'name matches ".*_error$"'
+          error_mode: ignore
+      
+      # Trace state filtering for distributed tracing
+      - name: trace_state_sampling
+        type: trace_state
+        trace_state:
+          key: "sampling"
+          values: ["always", "critical"]
+      
+      # Numeric attribute ranges
+      - name: request_size_filter
+        type: numeric_attribute
+        numeric_attribute:
+          key: http.request.body.size
+          min_value: 1000000  # 1MB+
+          max_value: 10000000 # 10MB max
+      
+      # Final fallback probabilistic
+      - name: fallback_sampling
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: 0.1
+
+exporters:
+  # Debug with detailed output for policy analysis
+  debug:
+    verbosity: detailed
+  
+  # Separate files for different policy decisions
+  file/sampled:
+    path: "/tmp/sampled-traces.jsonl"
+    format: json
+  
+  file/dropped:
+    path: "/tmp/dropped-traces.jsonl" 
+    format: json
+
+  # Prometheus metrics for policy performance
+  prometheus:
+    endpoint: "0.0.0.0:8888"
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, tailsamplingprocessor]
+      exporters: [debug, file/sampled]
+    
+    metrics:
+      receivers: []
+      processors: []
+      exporters: [prometheus]
+
+  extensions: []
+  
+  telemetry:
+    logs:
+      level: debug
+    metrics:
+      address: 0.0.0.0:8889
