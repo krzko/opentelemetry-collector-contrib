@@ -5,12 +5,16 @@ include:
   - ../shared/docker-compose.services.yml
 
 services:
-  otel-collector:
-    extends:
-      file: ../shared/docker-compose.services.yml
-      service: otel-collector
+  otelcol:
+    image: otelcontribcol:latest
+    ports:
+      - "4317:4317"  # OTLP gRPC
+      - "4318:4318"  # OTLP HTTP
+      - "8888:8888"  # Prometheus metrics
+      - "8889:8889"  # Prometheus metrics (alternate)
     volumes:
       - ./config:/config:ro
+    command: ["--config=/config/otelcol-config.yaml"]
     depends_on:
       redis:
         condition: service_healthy
@@ -28,7 +32,7 @@ services:
   test-runner:
     image: alpine:latest
     depends_on:
-      - otel-collector
+      - otelcol
     volumes:
       - ./tests:/tests:ro
     command: >
@@ -40,5 +44,5 @@ services:
       "
 
 volumes:
-  redis_data:
-  minio_data:
+  redis-data:
+  minio-data:

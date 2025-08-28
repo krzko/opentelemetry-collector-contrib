@@ -9,7 +9,7 @@ services:
       - "6379:6379"
     command: redis-server --appendonly yes
     volumes:
-      - redis_data:/data
+      - redis-data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -27,7 +27,7 @@ services:
       MINIO_ROOT_PASSWORD: minioadmin123
     command: server /data --console-address ":9001"
     volumes:
-      - minio_data:/data
+      - minio-data:/data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 30s
@@ -55,7 +55,7 @@ services:
       - "4443:4443"
     command: -scheme http -host 0.0.0.0 -port 4443
     volumes:
-      - gcs_data:/data
+      - gcs-data:/data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:4443/storage/v1/"]
       interval: 10s
@@ -82,43 +82,43 @@ services:
       echo 'GCS setup complete';
       "
 
-  # OpenTelemetry Collector with tail sampling processor
-  otel-collector:
-    image: otelcontribcol:latest
-    ports:
-      - "4317:4317"  # OTLP gRPC
-      - "4318:4318"  # OTLP HTTP
-      - "8888:8888"  # Prometheus metrics
-      - "8889:8889"  # Prometheus metrics (alternate)
-    volumes:
-      - ./config:/config:ro
-    depends_on:
-      redis:
-        condition: service_healthy
-    environment:
-      - OTEL_LOG_LEVEL=debug
-    command: ["--config=/config/otelcol-config.yaml"]
+  # # OpenTelemetry Collector with tail sampling processor
+  # otelcol:
+  #   image: otelcontribcol:latest
+  #   ports:
+  #     - "4317:4317"  # OTLP gRPC
+  #     - "4318:4318"  # OTLP HTTP
+  #     - "8888:8888"  # Prometheus metrics
+  #     - "8889:8889"  # Prometheus metrics (alternate)
+  #   volumes:
+  #     - ./config:/config:ro
+  #   depends_on:
+  #     redis:
+  #       condition: service_healthy
+  #   environment:
+  #     - OTEL_LOG_LEVEL=debug
+  #   command: ["--config=/config/otelcol-config.yaml"]
 
-  # Trace generator for testing
-  trace-generator:
-    image: telemetrygen:latest
-    depends_on:
-      - otel-collector
-    command: [
-      "traces",
-      "--otlp-endpoint", "otel-collector:4317",
-      "--otlp-insecure",
-      "--duration", "300s",
-      "--rate", "10",
-      "--traces", "1000",
-      "--child-spans", "5",
-      "--service", "test-service"
+  # # Trace generator for testing
+  # trace-generator:
+  #   image: telemetrygen:latest
+  #   depends_on:
+  #     - otelcol
+  #   command: [
+  #     "traces",
+  #     "--otlp-endpoint", "otelcol:4317",
+  #     "--otlp-insecure",
+  #     "--duration", "300s",
+  #     "--rate", "10",
+  #     "--traces", "1000",
+  #     "--child-spans", "5",
+  #     "--service", "test-service"
     ]
 
 volumes:
-  redis_data:
-  minio_data:
-  gcs_data:
+  redis-data:
+  minio-data:
+  gcs-data:
 
 networks:
   default:

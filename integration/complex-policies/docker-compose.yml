@@ -4,9 +4,7 @@
 services:
   # OpenTelemetry Collector with complex policies
   otelcol:
-    build:
-      context: ../shared
-      dockerfile: Dockerfile.otelcol
+    image: otelcontribcol:latest
     volumes:
       - ./config/otelcol-config.yaml:/etc/otelcol/config.yaml:ro
       - traces-output:/tmp
@@ -17,6 +15,7 @@ services:
       - "8889:8889"  # Internal telemetry
     environment:
       - OTEL_LOG_LEVEL=debug
+    command: ["--config=/etc/otelcol/config.yaml"]
     depends_on:
       - redis
       - fake-gcs
@@ -25,7 +24,7 @@ services:
 
   # Redis for coordination
   redis:
-    image: redis:7.2-alpine
+    image: redis:8.2.1-alpine
     ports:
       - "6379:6379"
     command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
@@ -37,7 +36,7 @@ services:
 
   # Fake GCS server for testing
   fake-gcs:
-    image: fsouza/fake-gcs-server:1.47.0
+    image: fsouza/fake-gcs-server:latest
     ports:
       - "4443:4443"
     command: ["-scheme", "http", "-host", "0.0.0.0", "-port", "4443"]
@@ -49,9 +48,7 @@ services:
 
   # Complex trace generator with various scenarios
   trace-generator:
-    build:
-      context: ../object-only/generator
-      dockerfile: Dockerfile
+    image: telemetrygen:latest
     environment:
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://otelcol:4317
       - OTEL_EXPORTER_OTLP_INSECURE=true

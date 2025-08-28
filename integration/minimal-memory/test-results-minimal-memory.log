@@ -1,0 +1,24 @@
+otelcol-1  | Error: failed to get config: cannot unmarshal the configuration: decoding failed due to the following error(s):
+otelcol-1  | 
+otelcol-1  | 'receivers' error reading configuration for "otlp": decoding failed due to the following error(s):
+otelcol-1  | 
+otelcol-1  | 'protocols.grpc' decoding failed due to the following error(s):
+otelcol-1  | 
+otelcol-1  | '' has invalid keys: max_recv_msg_size
+otelcol-1  | 'processors' unknown type: "memory_limiter" for id: "memory_limiter" (valid values: [batch tail_sampling])
+otelcol-1  | 'exporters' unknown type: "prometheus" for id: "prometheus" (valid values: [debug nop otlp otlphttp file])
+otelcol-1  | 'service.telemetry.metrics' decoding failed due to the following error(s):
+otelcol-1  | 
+otelcol-1  | '' has invalid keys: address
+otelcol-1  | 2025/08/28 13:35:48 collector server run finished with error: failed to get config: cannot unmarshal the configuration: decoding failed due to the following error(s):
+otelcol-1  | 
+otelcol-1  | 'receivers' error reading configuration for "otlp": decoding failed due to the following error(s):
+otelcol-1  | 
+otelcol-1  | 'protocols.grpc' decoding failed due to the following error(s):
+otelcol-1  | 
+otelcol-1  | '' has invalid keys: max_recv_msg_size
+otelcol-1  | 'processors' unknown type: "memory_limiter" for id: "memory_limiter" (valid values: [batch tail_sampling])
+otelcol-1  | 'exporters' unknown type: "prometheus" for id: "prometheus" (valid values: [debug nop otlp otlphttp file])
+otelcol-1  | 'service.telemetry.metrics' decoding failed due to the following error(s):
+otelcol-1  | 
+otelcol-1  | '' has invalid keys: address

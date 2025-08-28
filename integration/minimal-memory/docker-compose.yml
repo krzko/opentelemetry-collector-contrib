@@ -4,9 +4,7 @@
 services:
   # OpenTelemetry Collector with minimal memory
   otelcol:
-    build:
-      context: ../shared
-      dockerfile: Dockerfile.otelcol
+    image: otelcontribcol:latest
     volumes:
       - ./config/otelcol-config.yaml:/etc/otelcol/config.yaml:ro
       - traces-output:/tmp
@@ -19,6 +17,7 @@ services:
       - OTEL_LOG_LEVEL=error  # Minimal logging
       - GOMAXPROCS=1
       - GOMEMLIMIT=128MiB     # Go memory limit
+    command: ["--config=/etc/otelcol/config.yaml"]
     depends_on:
       - minio
     mem_limit: 128m  # Very constrained memory
@@ -27,53 +26,50 @@ services:
 
   # Lightweight MinIO
   minio:
-    image: minio/minio:RELEASE.2024-01-01T16-36-33Z
+    image: minio/minio:RELEASE.2025-07-23T15-54-02Z
     ports:
       - "9000:9000"
+      - "9001:9001"
     environment:
-      MINIO_ROOT_USER: admin
-      MINIO_ROOT_PASSWORD: password
-    command: server /data
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    command: server /data --console-address ":9001"
     volumes:
       - minio-data:/data
-    mem_limit: 64m   # Very constrained
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 30s
-      timeout: 10s
+      timeout: 20s
       retries: 3
 
   # Create bucket
   createbucket:
-    image: minio/mc:RELEASE.2024-01-01T05-03-17Z
+    image: minio/mc:RELEASE.2025-07-21T05-28-08Z
     depends_on:
       minio:
         condition: service_healthy
     entrypoint: >
       /bin/sh -c "
-      /usr/bin/mc alias set myminio http://minio:9000 admin password;
+      /usr/bin/mc alias set myminio http://minio:9000 minioadmin minioadmin123;
       /usr/bin/mc mb myminio/minimal-memory-test;
       exit 0;
       "
 
   # Controlled trace generator
   trace-generator:
-    build:
-      context: ../object-only/generator
-      dockerfile: Dockerfile
-    environment:
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otelcol:4317
-      - OTEL_EXPORTER_OTLP_INSECURE=true
-      - TRACE_SIZE=tiny          # Very small traces
-      - SPAN_COUNT=5             # Minimal spans
-      - TRACE_COUNT=50           # Low volume
-      - SERVICES=2               # Minimal services
-      - RATE_PER_SECOND=5        # Very low rate
-      - DURATION_SECONDS=120     # 2 minute test
-      - WORKERS=1                # Single worker
+    image: telemetrygen:latest
+    command: [
+      "traces",
+      "--otlp-endpoint", "otelcol:4317",
+      "--otlp-insecure",
+      "--duration", "300s",
+      "--rate", "10",
+      "--traces", "1000",
+      "--child-spans", "5",
+      "--service", "test-service"
+    ]
     depends_on:
       - otelcol
-    mem_limit: 32m  # Constrained generator too
 
 volumes:
   minio-data:

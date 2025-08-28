@@ -61,6 +61,17 @@ check_prerequisites() {
     success "Prerequisites check passed"
 }
 
+# Cleanup function for scenarios
+cleanup_scenario() {
+    local scenario_dir="$1"
+    if [[ -n "$scenario_dir" && -d "$scenario_dir" ]]; then
+        log "Cleaning up scenario resources..."
+        cd "$scenario_dir"
+        docker compose down -v --remove-orphans 2>/dev/null || true
+        cd "$SCRIPT_DIR"
+    fi
+}
+
 # Run a specific test scenario
 run_scenario() {
     local scenario=$1
@@ -74,6 +85,9 @@ run_scenario() {
     log "Running scenario: $scenario"
     
     cd "$scenario_dir"
+    
+    # Set up cleanup trap for this scenario
+    trap "cleanup_scenario '$scenario_dir'" EXIT ERR
     
     # Clean up any existing containers
     docker compose down -v --remove-orphans 2>/dev/null || true
@@ -98,15 +112,18 @@ run_scenario() {
         
         # Wait for test completion or timeout
         log "Running tests (timeout: ${TIMEOUT}s)..."
-        sleep "$TIMEOUT"
+        # sleep "$TIMEOUT"
         
         # Collect results
         log "Collecting test results for $scenario..."
-        docker compose logs otel-collector > "test-results-$scenario.log" 2>&1
+        docker compose logs otelcol > "test-results-$scenario.log" 2>&1
         
         # Clean up
-        docker compose down -v --remove-orphans
+        cleanup_scenario "$scenario_dir"
     fi
+    
+    # Clear the trap since we're cleaning up normally
+    trap - EXIT ERR
     
     success "Scenario $scenario completed"
     cd "$SCRIPT_DIR"
@@ -151,6 +168,20 @@ main() {
     check_prerequisites
     
     case "$SCENARIO" in
+        # Cleanup command
+        "cleanup")
+            log "Cleaning up all test scenarios..."
+            for dir in "$SCRIPT_DIR"/*/; do
+                if [[ -d "$dir" && -f "$dir/docker-compose.yml" ]]; then
+                    scenario_name=$(basename "$dir")
+                    log "Cleaning up $scenario_name..."
+                    cleanup_scenario "$dir"
+                fi
+            done
+            success "All scenarios cleaned up"
+            return 0
+            ;;
+        
         # Foundation scenarios
         "redis-gcs")
             run_scenario "redis-gcs"
@@ -245,12 +276,26 @@ main() {
             log "All scenarios completed"
             ;;
         *)
-            error "Unknown scenario: $SCENARIO"
-            echo "Available scenarios:"
-            echo "  Foundation: redis-gcs, redis-s3, object-only"
-            echo "  Advanced:   large-traces, complex-policies, performance-optimised, minimal-memory"
-            echo "  Groups:     foundation, advanced, all"
-            exit 1
+            # Try to run as individual scenario if directory exists
+            if [[ -d "$SCRIPT_DIR/$SCENARIO" ]]; then
+                log "Running individual scenario: $SCENARIO"
+                run_scenario "$SCENARIO"
+                validate_results "$SCENARIO"
+            else
+                error "Unknown scenario: $SCENARIO"
+                echo "Available individual scenarios:"
+                echo "  Foundation: redis-gcs, redis-s3, object-only"
+                echo "  Advanced:   large-traces, complex-policies, performance-optimised, minimal-memory"
+                echo "  Groups:     foundation, advanced, all"
+                echo ""
+                echo "Available scenario directories:"
+                for dir in "$SCRIPT_DIR"/*/; do
+                    if [[ -d "$dir" && -f "$dir/docker-compose.yml" ]]; then
+                        basename "$dir"
+                    fi
+                done
+                exit 1
+            fi
             ;;
     esac
     
@@ -282,6 +327,9 @@ Groups:
   foundation    Run all foundation tests
   advanced      Run all Phase 4.4 tests
   all           Run all scenarios (default)
+
+Commands:
+  cleanup       Clean up all Docker resources from previous test runs
 
 Options:
   timeout       Test timeout in seconds (default: 300)
