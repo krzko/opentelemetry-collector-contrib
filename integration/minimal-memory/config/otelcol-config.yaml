@@ -3,12 +3,6 @@
 
 receivers:
   otlp:
-    protocols:
-      grpc:
-        endpoint: 0.0.0.0:4317
-        max_recv_msg_size: 1048576  # 1MB limit
-      http:
-        endpoint: 0.0.0.0:4318
 
 processors:
   # Very aggressive memory limiting
@@ -18,7 +12,7 @@ processors:
     check_interval: 500ms
 
   # Tail sampling optimised for minimal memory
-  tailsamplingprocessor:
+  tail_sampling:
     # Minimal buffer settings
     decision_wait: 3s  # Fast decisions to free memory
     num_traces: 50     # Very small trace buffer
@@ -73,27 +67,9 @@ exporters:
     path: "/tmp/minimal-traces.json"
     format: json
 
-  # Basic metrics only
-  prometheus:
-    endpoint: "0.0.0.0:8888"
-
 service:
   pipelines:
     traces:
       receivers: [otlp]
       processors: [memory_limiter, tailsamplingprocessor]
       exporters: [file]
-    
-    metrics:
-      receivers: []
-      processors: []
-      exporters: [prometheus]
-
-  extensions: []
-  
-  telemetry:
-    logs:
-      level: error  # Only errors to save memory
-    metrics:
-      address: 0.0.0.0:8889
-      level: none   # No internal metrics to save memory
